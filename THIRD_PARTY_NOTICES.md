@@ -10,6 +10,8 @@ Runtime dependencies are installed separately:
 - ROS 1 packages, under their respective licenses, provide transport, messages,
   synchronization, image conversion, services, and TF.
 - NumPy, OpenCV, and PyYAML are used under their respective licenses.
+- `rosbags` is an optional dependency of the cross-platform evaluation tool and is
+  used under its respective license.
 
 FAST-Calib was used as prior experimental context but is not a build/runtime
 dependency, and no FAST-Calib code is redistributed. AAMED is not included or

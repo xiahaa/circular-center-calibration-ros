@@ -17,9 +17,7 @@ def _synthetic_board(seed=4):
         indexing="xy",
     )
     coordinates = np.column_stack((x.ravel(), y.ravel()))
-    centers = np.array(
-        [[-0.30, -0.20], [0.30, -0.20], [-0.30, 0.20], [0.30, 0.20]]
-    )
+    centers = np.array([[-0.30, -0.20], [0.30, -0.20], [-0.30, 0.20], [0.30, 0.20]])
     keep = np.ones(len(coordinates), dtype=bool)
     for center in centers:
         keep &= np.linalg.norm(coordinates - center, axis=1) >= 0.10
@@ -29,9 +27,7 @@ def _synthetic_board(seed=4):
     true_rvec = np.array([0.30, -0.18, 0.12])
     angle = np.linalg.norm(true_rvec)
     axis = true_rvec / angle
-    skew = np.array(
-        [[0.0, -axis[2], axis[1]], [axis[2], 0.0, -axis[0]], [-axis[1], axis[0], 0.0]]
-    )
+    skew = np.array([[0.0, -axis[2], axis[1]], [axis[2], 0.0, -axis[0]], [-axis[1], axis[0], 0.0]])
     rotation = np.eye(3) + np.sin(angle) * skew + (1.0 - np.cos(angle)) * (skew @ skew)
     translation = np.array([1.2, -0.3, 0.5])
     return board @ rotation.T + translation, centers, rotation, translation
@@ -63,3 +59,36 @@ def test_planar_occupancy_detector_recovers_four_hole_centers():
     )
     assert np.max(np.min(set_errors, axis=1)) < 0.035
     assert max(abs(item.radius - 0.10) for item in detections) < 0.035
+
+
+def test_detector_skips_a_larger_plane_without_the_target_pattern():
+    board, _, rotation, _ = _synthetic_board()
+    floor_x, floor_y = np.meshgrid(
+        np.linspace(0.0, 3.0, 150),
+        np.linspace(-1.5, 1.5, 100),
+        indexing="xy",
+    )
+    floor = np.column_stack((floor_x.ravel(), floor_y.ravel(), np.full(floor_x.size, -0.8)))
+    points = np.vstack((np.zeros((50, 3)), board, floor))
+    config = LidarDetectorConfig(
+        roi_min=[0.0, -2.0, -1.0],
+        roi_max=[3.1, 2.0, 2.0],
+        expected_count=4,
+        grid_columns=2,
+        plane_distance_threshold=0.004,
+        plane_ransac_iterations=150,
+        maximum_plane_candidates=2,
+        occupancy_resolution=0.011,
+        occupancy_dilation_cells=0,
+        minimum_hole_radius=0.07,
+        maximum_hole_radius=0.13,
+        annulus_half_width=0.025,
+        circle_residual_threshold=0.02,
+        random_seed=2025,
+    )
+
+    detections, plane = detect_circular_holes(points, config)
+
+    assert len(detections) == 4
+    expected_normal = rotation @ np.array([0.0, 0.0, 1.0])
+    assert abs(float(plane.normal @ expected_normal)) > 0.999

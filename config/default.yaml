@@ -4,6 +4,13 @@ frames:
   lidar: lidar
   camera: camera
 
+# Used when image_detector/use_camera_info is false.
+# camera:
+#   width: 2048
+#   height: 1536
+#   matrix: [[1200.0, 0.0, 1024.0], [0.0, 1200.0, 768.0], [0.0, 0.0, 1.0]]
+#   distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+
 target:
   circle_count: 4
   circle_diameter: 0.24
@@ -15,6 +22,8 @@ image_detector:
   output_topic: projected_circle_centers
   debug_image_topic: projected_circle_centers/debug
   distortion_model: pinhole
+  compressed_input: false
+  use_camera_info: true
   threshold_mode: otsu_dark
   adaptive_block_size: 31
   adaptive_constant: 5.0
@@ -22,6 +31,14 @@ image_detector:
   max_contour_area: 100000.0
   min_axis_ratio: 0.20
   duplicate_center_distance: 8.0
+  # Set these for targets with four corner ArUco markers. The ID order is
+  # top-left, top-right, bottom-left, bottom-right.
+  aruco_dictionary: ""
+  aruco_corner_ids: [1, 2, 3, 4]
+  aruco_hole_centers: []
+  aruco_warp_size: [1000, 700]
+  aruco_radius_fraction_min: 0.075
+  aruco_radius_fraction_max: 0.150
 
 lidar_detector:
   point_cloud_topic: /points_raw
@@ -30,6 +47,7 @@ lidar_detector:
   roi_max: [5.0, 5.0, 3.0]
   plane_distance_threshold: 0.015
   plane_ransac_iterations: 500
+  maximum_plane_candidates: 1
   occupancy_resolution: 0.01
   occupancy_dilation_cells: 1
   minimum_hole_radius: 0.06
@@ -37,6 +55,7 @@ lidar_detector:
   annulus_half_width: 0.025
   circle_residual_threshold: 0.015
   random_seed: 2025
+  accumulation_frames: 1
 
 solver:
   exhaustive_candidate_limit: 12
@@ -47,4 +66,7 @@ solver:
   resolve_correspondences: true
   maximum_permutation_size: 6
   minimum_frames: 3
+  maximum_frames: 30
+  minimum_translation_change: 0.10
+  minimum_rotation_change_degrees: 5.0
   auto_solve: true

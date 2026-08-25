@@ -6,7 +6,7 @@ import message_filters
 import numpy as np
 import rospy
 from cv_bridge import CvBridge
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 from circular_center_calibration_ros.image_detector import (
     ImageDetectorConfig,
@@ -33,37 +33,72 @@ class ImageCircleDetectorNode:
             min_contour_area=float(parameters.get("min_contour_area", 100.0)),
             max_contour_area=float(parameters.get("max_contour_area", 100000.0)),
             min_axis_ratio=float(parameters.get("min_axis_ratio", 0.20)),
-            duplicate_center_distance=float(
-                parameters.get("duplicate_center_distance", 8.0)
-            ),
+            duplicate_center_distance=float(parameters.get("duplicate_center_distance", 8.0)),
+            aruco_dictionary=parameters.get("aruco_dictionary", ""),
+            aruco_corner_ids=parameters.get("aruco_corner_ids", [1, 2, 3, 4]),
+            aruco_hole_centers=parameters.get("aruco_hole_centers", []),
+            aruco_warp_size=parameters.get("aruco_warp_size", [1000, 700]),
+            aruco_radius_fraction_min=float(parameters.get("aruco_radius_fraction_min", 0.075)),
+            aruco_radius_fraction_max=float(parameters.get("aruco_radius_fraction_max", 0.150)),
         )
         self.distortion_model = parameters.get("distortion_model", "pinhole")
+        self.compressed_input = bool(parameters.get("compressed_input", False))
+        self.use_camera_info = bool(parameters.get("use_camera_info", True))
+        self.static_camera = rospy.get_param("/camera", {})
+        if not self.use_camera_info and "matrix" not in self.static_camera:
+            raise ValueError("a static /camera matrix is required without CameraInfo")
         output_topic = parameters.get("output_topic", "projected_circle_centers")
-        debug_topic = parameters.get(
-            "debug_image_topic", "projected_circle_centers/debug"
-        )
+        debug_topic = parameters.get("debug_image_topic", "projected_circle_centers/debug")
         self.publisher = rospy.Publisher(output_topic, ProjectedCenterArray, queue_size=2)
         self.debug_publisher = rospy.Publisher(debug_topic, Image, queue_size=1)
         self.bridge = CvBridge()
 
-        image_subscriber = message_filters.Subscriber("image", Image)
-        info_subscriber = message_filters.Subscriber("camera_info", CameraInfo)
-        self.synchronizer = message_filters.ApproximateTimeSynchronizer(
-            [image_subscriber, info_subscriber], queue_size=10, slop=0.05
-        )
-        self.synchronizer.registerCallback(self.callback)
+        image_type = CompressedImage if self.compressed_input else Image
+        if self.use_camera_info:
+            image_subscriber = message_filters.Subscriber("image", image_type)
+            info_subscriber = message_filters.Subscriber("camera_info", CameraInfo)
+            self.synchronizer = message_filters.ApproximateTimeSynchronizer(
+                [image_subscriber, info_subscriber], queue_size=10, slop=0.05
+            )
+            self.synchronizer.registerCallback(self.callback)
+        else:
+            self.image_subscriber = rospy.Subscriber(
+                "image", image_type, self.callback, queue_size=2
+            )
 
-    def callback(self, image_message, camera_info):
+    def _static_camera_info(self, header):
+        message = CameraInfo()
+        message.header = header
+        message.width = int(self.static_camera.get("width", 0))
+        message.height = int(self.static_camera.get("height", 0))
+        message.distortion_model = self.static_camera.get("ros_distortion_model", "plumb_bob")
+        message.K = np.asarray(self.static_camera["matrix"], dtype=float).reshape(-1).tolist()
+        message.D = np.asarray(self.static_camera.get("distortion", []), dtype=float).tolist()
+        message.R = np.eye(3, dtype=float).reshape(-1).tolist()
+        projection = np.zeros((3, 4), dtype=float)
+        projection[:, :3] = np.asarray(message.K, dtype=float).reshape(3, 3)
+        message.P = projection.reshape(-1).tolist()
+        return message
+
+    def callback(self, image_message, camera_info=None):
         try:
-            image = self.bridge.imgmsg_to_cv2(image_message, desired_encoding="bgr8")
+            if self.compressed_input:
+                image = cv2.imdecode(
+                    np.frombuffer(image_message.data, dtype=np.uint8),
+                    cv2.IMREAD_COLOR,
+                )
+                if image is None:
+                    raise ValueError("compressed image could not be decoded")
+            else:
+                image = self.bridge.imgmsg_to_cv2(image_message, desired_encoding="bgr8")
+            if camera_info is None:
+                camera_info = self._static_camera_info(image_message.header)
             camera = CameraModel(
                 matrix=np.asarray(camera_info.K, dtype=float).reshape(3, 3),
                 distortion=np.asarray(camera_info.D, dtype=float),
                 distortion_model=self.distortion_model,
             )
-            detections, rectified = detect_projected_centers(
-                image, camera, self.config
-            )
+            detections, rectified = detect_projected_centers(image, camera, self.config)
         except Exception as error:
             rospy.logwarn_throttle(2.0, "image circle detection failed: %s", error)
             return
@@ -92,7 +127,9 @@ class ImageCircleDetectorNode:
             message.ellipse_angle = float(detection.ellipse[4])
             output.centers.append(message)
             cv2.circle(debug, tuple(np.round(detection.primary).astype(int)), 4, (0, 255, 0), -1)
-            cv2.circle(debug, tuple(np.round(detection.alternative).astype(int)), 4, (0, 0, 255), -1)
+            cv2.circle(
+                debug, tuple(np.round(detection.alternative).astype(int)), 4, (0, 0, 255), -1
+            )
             cv2.putText(
                 debug,
                 str(detection.id),

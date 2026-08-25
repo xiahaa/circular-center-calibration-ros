@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+# Configuration for the four-hole FAST-Calib Avia sample target.
+
+frames:
+  lidar: livox_frame
+  camera: camera
+
+camera:
+  width: 2048
+  height: 1536
+  matrix:
+    - [1215.31801774424, 0.0, 1047.86571859677]
+    - [0.0, 1214.72961288138, 745.068353101898]
+    - [0.0, 0.0, 1.0]
+  distortion: [-0.33574781188503, 0.10996870793601, 0.000157303079833973, 0.000544930726278493, 0.0]
+  ros_distortion_model: plumb_bob
+
+target:
+  circle_count: 4
+  circle_diameter: 0.24
+  grid_columns: 2
+
+image_detector:
+  output_topic: projected_circle_centers
+  debug_image_topic: projected_circle_centers/debug
+  distortion_model: pinhole
+  compressed_input: true
+  use_camera_info: false
+  threshold_mode: otsu_dark
+  adaptive_block_size: 31
+  adaptive_constant: 5.0
+  min_contour_area: 100.0
+  max_contour_area: 100000.0
+  min_axis_ratio: 0.20
+  duplicate_center_distance: 8.0
+  aruco_dictionary: DICT_6X6_50
+  # top-left, top-right, bottom-left, bottom-right
+  aruco_corner_ids: [1, 2, 3, 4]
+  # Hole centers in the normalized quadrilateral formed by marker centers.
+  aruco_hole_centers:
+    - [0.273, 0.210]
+    - [0.727, 0.210]
+    - [0.273, 0.785]
+    - [0.727, 0.785]
+  aruco_warp_size: [1000, 700]
+  aruco_radius_fraction_min: 0.075
+  aruco_radius_fraction_max: 0.150
+
+lidar_detector:
+  output_topic: lidar_circle_centers
+  roi_min: [1.40, -1.30, -0.80]
+  roi_max: [3.40, 1.30, 1.00]
+  plane_distance_threshold: 0.012
+  plane_ransac_iterations: 500
+  maximum_plane_candidates: 3
+  occupancy_resolution: 0.008
+  occupancy_dilation_cells: 2
+  minimum_hole_radius: 0.06
+  maximum_hole_radius: 0.17
+  annulus_half_width: 0.035
+  circle_residual_threshold: 0.020
+  random_seed: 2025
+  accumulation_frames: 5
+
+solver:
+  exhaustive_candidate_limit: 12
+  quasi_ransac_iterations: 3000
+  reprojection_inlier_threshold: 4.0
+  minimum_inliers: 8
+  random_seed: 2025
+  resolve_correspondences: true
+  maximum_permutation_size: 4
+  minimum_frames: 5
+  maximum_frames: 20
+  minimum_translation_change: 0.10
+  minimum_rotation_change_degrees: 5.0
+  auto_solve: true
+
+# Published FAST-Calib result, used only by tools/evaluate_fastcalib_avia.py.
+reference:
+  rotation_camera_lidar:
+    - [-0.000585895, -0.999876, -0.0157254]
+    - [-0.00359985, 0.0157274, -0.99987]
+    - [0.999993, -0.000529209, -0.00360862]
+  translation_camera_lidar: [-0.00120821, 0.0847843, 0.0199085]
