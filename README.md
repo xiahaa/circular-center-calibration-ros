@@ -110,7 +110,9 @@ play recordings from multiple target poses before solving. The five-frame point
 cloud window assumes the sensor and target remain still for roughly half a second.
 Set `accumulation_frames: 1` for dense spinning-LiDAR scans or moving targets.
 
-The same five bags can be evaluated without a ROS installation using `rosbags`:
+The same five bags can be evaluated without a ROS installation using
+[`tools/evaluate_fastcalib_avia.py`](tools/evaluate_fastcalib_avia.py) and
+`rosbags`:
 
 ```bash
 python3 -m pip install -r requirements-evaluation.txt
@@ -130,6 +132,12 @@ has a 1.443 px RMSE over 9/20 inliers at the configured 4 px threshold; its tran
 differs from the sample FAST-Calib result by 0.190 degrees and 0.0229 m. These are
 differences between two calibration outputs, not ground-truth accuracy. The modest
 inlier ratio also indicates that LiDAR boundary extraction still needs improvement.
+
+The image below shows the detections from all five recordings. Magenta curves are
+the fitted ellipses; green and red dots are the two perspective-aware projected
+center candidates.
+
+![FAST-Calib Avia circle detections](docs/images/fastcalib_avia_detections.jpg)
 
 ### Circle identities
 
