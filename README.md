@@ -5,8 +5,6 @@ An independent ROS 1 integration of the circular-center estimators released in
 It estimates a LiDAR-to-camera extrinsic transform from a planar target containing
 circular holes.
 
-This repository is a clean ROS implementation.
-
 ## What is included
 
 - An image node that rectifies incoming images, fits OpenCV ellipses, and calls the
