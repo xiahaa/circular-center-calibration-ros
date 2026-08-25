@@ -1,0 +1,22 @@
+<launch>
+  <arg name="config" default="$(find circular_center_calibration_ros)/config/default.yaml"/>
+  <arg name="image" default="/camera/image_raw"/>
+  <arg name="camera_info" default="/camera/camera_info"/>
+  <arg name="points" default="/points_raw"/>
+
+  <rosparam command="load" file="$(arg config)"/>
+
+  <node pkg="circular_center_calibration_ros" type="image_circle_detector.py"
+        name="image_circle_detector" output="screen">
+    <remap from="image" to="$(arg image)"/>
+    <remap from="camera_info" to="$(arg camera_info)"/>
+  </node>
+
+  <node pkg="circular_center_calibration_ros" type="lidar_circle_detector.py"
+        name="lidar_circle_detector" output="screen">
+    <remap from="points" to="$(arg points)"/>
+  </node>
+
+  <node pkg="circular_center_calibration_ros" type="calibration_server.py"
+        name="circular_center_calibration" output="screen"/>
+</launch>

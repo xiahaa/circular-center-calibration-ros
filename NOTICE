@@ -1,0 +1,5 @@
+Circular-Center Calibration for ROS
+Copyright 2026 Xiao Hu and contributors
+
+This product uses the separately installed circular-center-calibration package.
+No FAST-Calib or AAMED source code is included in this distribution.

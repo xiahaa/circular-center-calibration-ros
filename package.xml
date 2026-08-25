@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>circular_center_calibration_ros</name>
+  <version>0.1.0</version>
+  <description>ROS1 integration for circular-center LiDAR-camera extrinsic calibration.</description>
+
+  <maintainer email="huxiao1@idea.edu.cn">Xiao Hu</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>message_generation</build_depend>
+
+  <depend>cv_bridge</depend>
+  <depend>geometry_msgs</depend>
+  <depend>message_filters</depend>
+  <depend>rospy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf2_ros</depend>
+
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <test_depend>python3-nose</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export/>
+</package>

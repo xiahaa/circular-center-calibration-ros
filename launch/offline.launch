@@ -1,0 +1,12 @@
+<launch>
+  <arg name="input"/>
+  <arg name="output" default="$(env HOME)/circular_center_calibration_result.yaml"/>
+  <arg name="publish_tf" default="true"/>
+
+  <node pkg="circular_center_calibration_ros" type="calibrate_from_yaml.py"
+        name="circular_center_offline_calibration" output="screen" required="true">
+    <param name="input" value="$(arg input)"/>
+    <param name="output" value="$(arg output)"/>
+    <param name="publish_tf" value="$(arg publish_tf)"/>
+  </node>
+</launch>

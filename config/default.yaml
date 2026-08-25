@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+
+frames:
+  lidar: lidar
+  camera: camera
+
+target:
+  circle_count: 4
+  circle_diameter: 0.24
+  grid_columns: 2
+
+image_detector:
+  image_topic: /camera/image_raw
+  camera_info_topic: /camera/camera_info
+  output_topic: projected_circle_centers
+  debug_image_topic: projected_circle_centers/debug
+  distortion_model: pinhole
+  threshold_mode: otsu_dark
+  adaptive_block_size: 31
+  adaptive_constant: 5.0
+  min_contour_area: 100.0
+  max_contour_area: 100000.0
+  min_axis_ratio: 0.20
+  duplicate_center_distance: 8.0
+
+lidar_detector:
+  point_cloud_topic: /points_raw
+  output_topic: lidar_circle_centers
+  roi_min: [-5.0, -5.0, -3.0]
+  roi_max: [5.0, 5.0, 3.0]
+  plane_distance_threshold: 0.015
+  plane_ransac_iterations: 500
+  occupancy_resolution: 0.01
+  occupancy_dilation_cells: 1
+  minimum_hole_radius: 0.06
+  maximum_hole_radius: 0.18
+  annulus_half_width: 0.025
+  circle_residual_threshold: 0.015
+  random_seed: 2025
+
+solver:
+  exhaustive_candidate_limit: 12
+  quasi_ransac_iterations: 1000
+  reprojection_inlier_threshold: 3.0
+  minimum_inliers: 4
+  random_seed: 2025
+  resolve_correspondences: true
+  maximum_permutation_size: 6
+  minimum_frames: 3
+  auto_solve: true

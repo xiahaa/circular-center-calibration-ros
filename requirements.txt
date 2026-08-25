@@ -1,0 +1,3 @@
+numpy>=1.17
+PyYAML>=5.3
+circular-center-calibration @ git+https://github.com/xiahaa/circular-center-calibration.git@v0.1.0
