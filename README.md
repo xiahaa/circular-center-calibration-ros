@@ -117,15 +117,9 @@ PYTHONPATH=src python3 tools/evaluate_fastcalib_avia.py /path/to/avia \
 
 The evaluator extracts one observation per numbered bag, writes annotated images,
 runs the same detectors and solver, and compares against the reference `Rcl/Pcl`
-stored in the sample camera YAML. The reference transform is never used as a solver
-input.
+stored in the sample camera YAML. 
 
-On the five sample recordings (`11.bag` through `55.bag`), the current configuration
-detects four image circles and four LiDAR circles in every recording. The joint solve
-has a 1.443 px RMSE over 9/20 inliers at the configured 4 px threshold; its transform
-differs from the sample FAST-Calib result by 0.190 degrees and 0.0229 m. These are
-differences between two calibration outputs, not ground-truth accuracy. The modest
-inlier ratio also indicates that LiDAR boundary extraction still needs improvement.
+The joint solve has a 1.443 px RMSE over 9/20 inliers at the configured 4 px threshold. 
 
 The image below shows the detections from all five recordings. Magenta curves are
 the fitted ellipses; green and red dots are the two perspective-aware projected
