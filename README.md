@@ -5,11 +5,7 @@ An independent ROS 1 integration of the circular-center estimators released in
 It estimates a LiDAR-to-camera extrinsic transform from a planar target containing
 circular holes.
 
-This repository is a clean ROS implementation. It does **not** copy FAST-Calib or
-AAMED source code, and it is not intended as a FAST-Calib pull request. The reusable
-paper algorithms remain in the smaller core repository; this package supplies ROS
-messages, detectors, synchronization, calibration orchestration, TF publication,
-and repeatable YAML input/output.
+This repository is a clean ROS implementation.
 
 ## What is included
 
@@ -139,18 +135,6 @@ catkin_test_results
 
 Tests cover binary center disambiguation, unlabelled per-frame ordering, YAML I/O,
 synthetic image ellipses, and synthetic LiDAR circular holes.
-
-## Scope and limitations
-
-This first release is a reference implementation, not a turn-key detector for all
-sensors and targets. Raw detection depends on point density, image contrast, ROI,
-hole size, and board background. Validate detections visually and reject motion-
-distorted or poorly synchronized frames. The reported RMSE measures image
-reprojection consistency; it is not by itself an accuracy guarantee.
-
-The package currently targets ROS 1 Noetic. ROS 2, bag extraction tools, interactive
-target-pose acceptance, and sensor-specific detector plugins are natural future
-extensions.
 
 ## Citation and license
 
