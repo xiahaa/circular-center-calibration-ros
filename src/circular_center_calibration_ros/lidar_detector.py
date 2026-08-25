@@ -16,6 +16,7 @@ class LidarDetectorConfig:
     grid_columns: int = 2
     plane_distance_threshold: float = 0.015
     plane_ransac_iterations: int = 500
+    maximum_plane_candidates: int = 1
     occupancy_resolution: float = 0.01
     occupancy_dilation_cells: int = 1
     minimum_hole_radius: float = 0.06
@@ -33,6 +34,8 @@ class LidarDetectorConfig:
             raise ValueError("each ROI minimum must be smaller than its maximum")
         if self.expected_count <= 0 or self.grid_columns <= 0:
             raise ValueError("expected_count and grid_columns must be positive")
+        if self.plane_ransac_iterations <= 0 or self.maximum_plane_candidates <= 0:
+            raise ValueError("plane RANSAC settings must be positive")
         positive = (
             self.plane_distance_threshold,
             self.occupancy_resolution,
@@ -151,9 +154,7 @@ def _hole_seeds(
     occupancy[cells[:, 1], cells[:, 0]] = 255
     dilation = int(config.occupancy_dilation_cells)
     if dilation > 0:
-        kernel = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (2 * dilation + 1, 2 * dilation + 1)
-        )
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilation + 1, 2 * dilation + 1))
         occupancy = cv2.dilate(occupancy, kernel)
     empty = cv2.bitwise_not(occupancy)
     count, _, stats, centroids = cv2.connectedComponentsWithStats(empty, 8)
@@ -166,9 +167,7 @@ def _hole_seeds(
         radius = np.sqrt(float(area) / np.pi) * resolution + dilation * resolution
         if config.minimum_hole_radius <= radius <= config.maximum_hole_radius:
             uv = lower + resolution * centroids[label]
-            target_radius = 0.5 * (
-                config.minimum_hole_radius + config.maximum_hole_radius
-            )
+            target_radius = 0.5 * (config.minimum_hole_radius + config.maximum_hole_radius)
             candidates.append((abs(radius - target_radius), uv, radius, int(area)))
     candidates.sort(key=lambda value: (value[0], -value[3]))
     return candidates[: config.expected_count]
@@ -180,71 +179,92 @@ def detect_circular_holes(
     try:
         from circular_center.center3d import fit_circle_ransac
     except ImportError as error:
-        raise RuntimeError(
-            "install circular-center-calibration from requirements.txt"
-        ) from error
+        raise RuntimeError("install circular-center-calibration from requirements.txt") from error
 
     points = np.asarray(points, dtype=float)
     if points.ndim != 2 or points.shape[1] != 3 or not np.isfinite(points).all():
         raise ValueError("points must be a finite array with shape (N, 3)")
-    roi_mask = np.all((points >= config.roi_min) & (points <= config.roi_max), axis=1)
+    roi_mask = (np.linalg.norm(points, axis=1) > 1e-6) & np.all(
+        (points >= config.roi_min) & (points <= config.roi_max), axis=1
+    )
     filtered = points[roi_mask]
     if len(filtered) < 50:
         raise RuntimeError("fewer than 50 points remain after ROI filtering")
-    plane = fit_plane_ransac(
-        filtered,
-        config.plane_distance_threshold,
-        config.plane_ransac_iterations,
-        config.random_seed,
-    )
-    plane_points = filtered[plane.inlier_mask]
-    offsets = plane_points - plane.origin
-    coordinates = np.column_stack((offsets @ plane.basis_u, offsets @ plane.basis_v))
-    seeds = _hole_seeds(coordinates, config)
-    if len(seeds) != config.expected_count:
-        raise RuntimeError(
-            f"expected {config.expected_count} circular holes, found {len(seeds)}"
+    remaining = filtered
+    remaining_indices = np.arange(len(filtered))
+    errors = []
+    for candidate_index in range(config.maximum_plane_candidates):
+        if len(remaining) < 50:
+            break
+        plane = fit_plane_ransac(
+            remaining,
+            config.plane_distance_threshold,
+            config.plane_ransac_iterations,
+            config.random_seed + candidate_index,
         )
+        plane_points = remaining[plane.inlier_mask]
+        try:
+            offsets = plane_points - plane.origin
+            coordinates = np.column_stack((offsets @ plane.basis_u, offsets @ plane.basis_v))
+            seeds = _hole_seeds(coordinates, config)
+            if len(seeds) != config.expected_count:
+                raise RuntimeError(
+                    f"expected {config.expected_count} circular holes, found {len(seeds)}"
+                )
 
-    raw_results = []
-    for _, seed, estimated_radius, _ in seeds:
-        radial = np.linalg.norm(coordinates - seed, axis=1)
-        annulus = np.abs(radial - estimated_radius) <= config.annulus_half_width
-        boundary = plane_points[annulus]
-        if len(boundary) < 8:
-            raise RuntimeError("not enough points around a detected hole boundary")
-        fit = fit_circle_ransac(
-            boundary,
-            residual_threshold=config.circle_residual_threshold,
-            max_iterations=500,
-            sample_size=5,
-            minimum_inliers=max(5, int(0.35 * len(boundary))),
-            seed=config.random_seed,
-        )
-        rmse = float(np.sqrt(np.mean(np.square(fit.residuals[fit.inlier_mask]))))
-        center_offset = fit.center - plane.origin
-        center_2d = np.array(
-            [center_offset @ plane.basis_u, center_offset @ plane.basis_v]
-        )
-        raw_results.append((fit, rmse, center_2d))
+            raw_results = []
+            for _, seed, estimated_radius, _ in seeds:
+                radial = np.linalg.norm(coordinates - seed, axis=1)
+                annulus = np.abs(radial - estimated_radius) <= config.annulus_half_width
+                boundary = plane_points[annulus]
+                if len(boundary) < 8:
+                    raise RuntimeError("not enough points around a detected hole boundary")
+                fit = fit_circle_ransac(
+                    boundary,
+                    residual_threshold=config.circle_residual_threshold,
+                    max_iterations=500,
+                    sample_size=5,
+                    minimum_inliers=max(5, int(0.35 * len(boundary))),
+                    seed=config.random_seed,
+                )
+                rmse = float(np.sqrt(np.mean(np.square(fit.residuals[fit.inlier_mask]))))
+                center_offset = fit.center - plane.origin
+                center_2d = np.array([center_offset @ plane.basis_u, center_offset @ plane.basis_v])
+                raw_results.append((fit, rmse, center_2d))
 
-    order = _row_major_order(
-        np.asarray([result[2] for result in raw_results]), config.grid_columns
-    )
-    detections = []
-    for circle_id, index in enumerate(order):
-        fit, rmse, _ = raw_results[int(index)]
-        detections.append(
-            DetectedCircle3D(
-                id=circle_id,
-                center=fit.center,
-                normal=fit.normal,
-                radius=float(fit.radius),
-                rmse=rmse,
-                inlier_count=int(np.count_nonzero(fit.inlier_mask)),
+            order = _row_major_order(
+                np.asarray([result[2] for result in raw_results]), config.grid_columns
             )
-        )
-    return detections, plane
+            detections = []
+            for circle_id, index in enumerate(order):
+                fit, rmse, _ = raw_results[int(index)]
+                detections.append(
+                    DetectedCircle3D(
+                        id=circle_id,
+                        center=fit.center,
+                        normal=fit.normal,
+                        radius=float(fit.radius),
+                        rmse=rmse,
+                        inlier_count=int(np.count_nonzero(fit.inlier_mask)),
+                    )
+                )
+            full_inlier_mask = np.zeros(len(filtered), dtype=bool)
+            full_inlier_mask[remaining_indices[plane.inlier_mask]] = True
+            resolved_plane = PlaneModel(
+                plane.origin,
+                plane.normal,
+                plane.basis_u,
+                plane.basis_v,
+                full_inlier_mask,
+            )
+            return detections, resolved_plane
+        except RuntimeError as error:
+            errors.append(f"plane {candidate_index + 1}: {error}")
+            remaining_indices = remaining_indices[~plane.inlier_mask]
+            remaining = remaining[~plane.inlier_mask]
+
+    detail = "; ".join(errors) if errors else "no plane had enough points"
+    raise RuntimeError(f"no plane candidate contained the target ({detail})")
 
 
 __all__ = [

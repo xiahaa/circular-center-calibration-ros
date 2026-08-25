@@ -88,6 +88,49 @@ rosservice call /circular_center_calibration/solve
 
 Set `solver/output_path` in the configuration to persist the result as YAML.
 
+### FAST-Calib Avia sample data
+
+[`config/fastcalib_avia.yaml`](config/fastcalib_avia.yaml) contains the camera,
+target, ROI, and topic settings for the released four-hole Avia sample. It reads
+the compressed image topic directly, uses the four `DICT_6X6_50` corner markers to
+guide ellipse fitting, and accumulates five Livox frames before detecting holes:
+
+```bash
+roslaunch circular_center_calibration_ros online.launch \
+  config:=$(rospack find circular_center_calibration_ros)/config/fastcalib_avia.yaml \
+  image:=/left_camera/image/compressed \
+  points:=/livox/lidar
+
+rosbag play 11.bag
+```
+
+One static recording contributes one target pose; redundant frames are rejected by
+translation and plane-normal thresholds. Keep the calibration server running and
+play recordings from multiple target poses before solving. The five-frame point
+cloud window assumes the sensor and target remain still for roughly half a second.
+Set `accumulation_frames: 1` for dense spinning-LiDAR scans or moving targets.
+
+The same five bags can be evaluated without a ROS installation using `rosbags`:
+
+```bash
+python3 -m pip install -r requirements-evaluation.txt
+PYTHONPATH=src python3 tools/evaluate_fastcalib_avia.py /path/to/avia \
+  --output outputs/avia/result.yaml \
+  --debug-directory outputs/avia/debug
+```
+
+The evaluator extracts one observation per numbered bag, writes annotated images,
+runs the same detectors and solver, and compares against the reference `Rcl/Pcl`
+stored in the sample camera YAML. The reference transform is never used as a solver
+input.
+
+On the five sample recordings (`11.bag` through `55.bag`), the current configuration
+detects four image circles and four LiDAR circles in every recording. The joint solve
+has a 1.443 px RMSE over 9/20 inliers at the configured 4 px threshold; its transform
+differs from the sample FAST-Calib result by 0.190 degrees and 0.0229 m. These are
+differences between two calibration outputs, not ground-truth accuracy. The modest
+inlier ratio also indicates that LiDAR boundary extraction still needs improvement.
+
 ### Circle identities
 
 Detector IDs are local geometric orderings, not physical marker identities. Plane

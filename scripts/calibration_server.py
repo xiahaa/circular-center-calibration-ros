@@ -30,27 +30,24 @@ class CalibrationServer:
         self.camera_frame = frames.get("camera", "camera")
         self.lidar_frame = frames.get("lidar", "lidar")
         self.minimum_frames = int(parameters.get("minimum_frames", 1))
+        self.maximum_frames = int(parameters.get("maximum_frames", 30))
+        self.minimum_translation_change = float(parameters.get("minimum_translation_change", 0.10))
+        self.minimum_rotation_change = np.deg2rad(
+            float(parameters.get("minimum_rotation_change_degrees", 5.0))
+        )
         self.auto_solve = bool(parameters.get("auto_solve", True))
         self.output_path = parameters.get("output_path", "")
         self.solver = CandidatePnPSolver(
             SolverConfig(
-                exhaustive_candidate_limit=int(
-                    parameters.get("exhaustive_candidate_limit", 12)
-                ),
-                quasi_ransac_iterations=int(
-                    parameters.get("quasi_ransac_iterations", 1000)
-                ),
+                exhaustive_candidate_limit=int(parameters.get("exhaustive_candidate_limit", 12)),
+                quasi_ransac_iterations=int(parameters.get("quasi_ransac_iterations", 1000)),
                 reprojection_inlier_threshold=float(
                     parameters.get("reprojection_inlier_threshold", 3.0)
                 ),
                 minimum_inliers=int(parameters.get("minimum_inliers", 4)),
                 random_seed=int(parameters.get("random_seed", 2025)),
-                resolve_correspondences=bool(
-                    parameters.get("resolve_correspondences", True)
-                ),
-                maximum_permutation_size=int(
-                    parameters.get("maximum_permutation_size", 6)
-                ),
+                resolve_correspondences=bool(parameters.get("resolve_correspondences", True)),
+                maximum_permutation_size=int(parameters.get("maximum_permutation_size", 6)),
             )
         )
         self.lock = threading.Lock()
@@ -66,9 +63,7 @@ class CalibrationServer:
         image_subscriber = message_filters.Subscriber(
             "projected_circle_centers", ProjectedCenterArray
         )
-        lidar_subscriber = message_filters.Subscriber(
-            "lidar_circle_centers", CircleCenterArray
-        )
+        lidar_subscriber = message_filters.Subscriber("lidar_circle_centers", CircleCenterArray)
         self.synchronizer = message_filters.ApproximateTimeSynchronizer(
             [image_subscriber, lidar_subscriber], queue_size=10, slop=0.10
         )
@@ -95,13 +90,42 @@ class CalibrationServer:
                 ]
             )
             labels.append(str(circle_id))
-        return np.asarray(points), np.asarray(candidates), labels
+        normals = np.asarray(
+            [
+                [
+                    lidar_by_id[circle_id].normal.x,
+                    lidar_by_id[circle_id].normal.y,
+                    lidar_by_id[circle_id].normal.z,
+                ]
+                for circle_id in common_ids
+            ],
+            dtype=float,
+        )
+        reference = normals[0]
+        normals[np.sum(normals * reference, axis=1) < 0.0] *= -1.0
+        normal = np.mean(normals, axis=0)
+        normal_length = np.linalg.norm(normal)
+        if normal_length <= 1e-9:
+            raise ValueError("LiDAR circle normals do not define a target plane")
+        return np.asarray(points), np.asarray(candidates), labels, normal / normal_length
+
+    def _is_distinct_pose(self, points, normal):
+        center = np.mean(points, axis=0)
+        for frame in self.frames:
+            previous_center, previous_normal = frame[3], frame[4]
+            translation = np.linalg.norm(center - previous_center)
+            cosine = np.clip(abs(float(normal @ previous_normal)), -1.0, 1.0)
+            rotation = np.arccos(cosine)
+            if (
+                translation < self.minimum_translation_change
+                and rotation < self.minimum_rotation_change
+            ):
+                return False
+        return True
 
     def observation_callback(self, image_message, lidar_message):
         try:
-            points, candidates, labels = self._extract_frame(
-                image_message, lidar_message
-            )
+            points, candidates, labels, normal = self._extract_frame(image_message, lidar_message)
             camera = CameraModel(
                 np.asarray(image_message.camera_info.K, dtype=float).reshape(3, 3),
                 np.asarray(image_message.camera_info.D, dtype=float),
@@ -116,9 +140,23 @@ class CalibrationServer:
                 rospy.logwarn("camera intrinsics changed; reset the calibration server")
                 return
             self.camera = camera
+            if len(self.frames) >= self.maximum_frames:
+                rospy.logwarn_throttle(
+                    2.0, "maximum calibration frame count reached; solve or reset"
+                )
+                return
+            if not self._is_distinct_pose(points, normal):
+                rospy.loginfo_throttle(2.0, "skipped a redundant target pose")
+                return
             frame_index = len(self.frames)
             self.frames.append(
-                (points, candidates, [f"{frame_index}:{label}" for label in labels])
+                (
+                    points,
+                    candidates,
+                    [f"{frame_index}:{label}" for label in labels],
+                    np.mean(points, axis=0),
+                    normal,
+                )
             )
             frame_count = len(self.frames)
         rospy.loginfo("accepted calibration frame %d", frame_count)
@@ -146,17 +184,13 @@ class CalibrationServer:
         except Exception as error:
             rospy.logerr("calibration failed: %s", error)
             return None
-        result_message = make_result_message(
-            result, stamp, self.camera_frame, self.lidar_frame
-        )
+        result_message = make_result_message(result, stamp, self.camera_frame, self.lidar_frame)
         self.result_publisher.publish(result_message)
         self.tf_broadcaster.sendTransform(
             make_transform_stamped(result, stamp, self.camera_frame, self.lidar_frame)
         )
         if self.output_path:
-            save_result(
-                self.output_path, result, self.camera_frame, self.lidar_frame
-            )
+            save_result(self.output_path, result, self.camera_frame, self.lidar_frame)
         rospy.loginfo(
             "calibration succeeded with %d/%d inliers, RMSE %.4f px",
             result_message.inlier_count,
@@ -169,9 +203,7 @@ class CalibrationServer:
         result = self.solve_and_publish(rospy.Time.now())
         if result is None:
             return TriggerResponse(False, "calibration failed; inspect ROS logs")
-        return TriggerResponse(
-            True, f"calibration RMSE {result.reprojection_rmse_pixels:.4f} px"
-        )
+        return TriggerResponse(True, f"calibration RMSE {result.reprojection_rmse_pixels:.4f} px")
 
     def reset_service_callback(self, _request):
         with self.lock:
